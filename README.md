@@ -62,3 +62,105 @@ npm run dev
 ```bash
 npm run build
 ```
+
+## 2.FastAPI初步
+
+第二天完成任务管理应用的 FastAPI 内存版后端。当前前后端保持独立，后端暂不连接 Vue 和 MySQL，主要用于理解 FastAPI 请求流程、Pydantic 数据校验和 CRUD 操作。
+
+### 开发环境
+
+- 使用 `.venv` 为后端创建独立的 Python 虚拟环境，避免项目之间发生依赖冲突。
+- 使用 `requirements.txt` 记录后端依赖，目前主要依赖 `fastapi[standard]`。
+- `.venv`、`__pycache__`、IDE 配置和环境变量文件通过 `.gitignore` 排除，不提交到 Git。
+
+### 后端目录
+
+```text
+backend/
+├─ .venv/              # Python 虚拟环境，不提交到 Git
+├─ main.py             # FastAPI 实例、内存数据和 CRUD 接口
+├─ schemas.py          # Pydantic 请求与响应模型
+├─ test_main.http      # PyCharm HTTP 接口测试文件
+├─ requirements.txt    # Python 依赖
+└─ .gitignore          # Git 忽略规则
+```
+
+### Pydantic 数据模型
+
+`schemas.py` 用于规定接口接收和返回的数据格式，并在运行时自动校验客户端提交的数据。
+
+- `TaskPriority`：将优先级限制为 `high`、`medium`、`low`。
+- `TaskCreate`：规定创建任务时需要提交的标题、优先级和截止日期。
+- `TaskUpdate`：规定更新任务时允许修改的字段，字段均为可选。
+- `TaskResponse`：规定接口返回的完整任务结构，包括 `id`、完成状态和创建时间。
+
+### 内存数据
+
+当前使用 Python 列表临时代替数据库：
+
+```python
+tasks: list[TaskResponse] = []
+next_id = 1
+```
+
+`tasks` 保存任务，`next_id` 模拟数据库的自增主键。服务重启后列表会重新变为空，这是内存版后端的正常行为。
+
+辅助函数 `find_task_index(task_id)` 根据任务 ID 查找其在列表中的下标；找不到时抛出 `404`，供更新和删除接口共同使用。
+
+### CRUD 接口
+
+| 操作 | 请求方法和路径 | 作用 |
+| --- | --- | --- |
+| 查询 | `GET /tasks` | 返回全部任务 |
+| 创建 | `POST /tasks` | 生成 ID 和创建时间，并将新任务加入列表 |
+| 更新 | `PUT /tasks/{task_id}` | 根据 ID 找到任务，只更新客户端实际提交的字段 |
+| 删除 | `DELETE /tasks/{task_id}` | 根据 ID 从列表中删除任务 |
+
+更新任务时使用：
+
+```python
+task_data.model_dump(exclude_unset=True)
+```
+
+它只提取客户端实际提交的字段。随后使用 `model_copy(update=update_data)` 在原任务基础上生成更新后的任务，并替换列表中的旧任务。
+
+删除任务时先通过 ID 找到列表下标，再使用 `tasks.pop(task_index)` 删除对应任务。删除成功返回 `204 No Content`。
+
+### 状态码和校验
+
+- `200 OK`：查询或更新成功。
+- `201 Created`：任务创建成功。
+- `204 No Content`：任务删除成功，不返回响应体。
+- `404 Not Found`：任务 ID 不存在。
+- `422 Unprocessable Entity`：请求数据不符合 Pydantic 模型，例如优先级或日期格式错误。
+
+### 启动和测试
+
+进入后端目录并激活虚拟环境：
+
+```powershell
+cd D:\LTM\backend
+.\.venv\Scripts\Activate.ps1
+fastapi dev main.py
+```
+
+启动后可以使用以下方式测试：
+
+- Swagger 文档：`http://127.0.0.1:8000/docs`
+- PyCharm：打开 `test_main.http`，依次执行新增、查询、更新和删除请求。
+
+建议的 CRUD 测试顺序：
+
+```text
+POST 新增任务
+  ↓
+GET 查看任务
+  ↓
+PUT 修改任务
+  ↓
+GET 检查修改结果
+  ↓
+DELETE 删除任务
+  ↓
+GET 确认任务已经删除
+```

@@ -1,0 +1,32 @@
+@baseUrl = http://127.0.0.1:8000
+
+### 检查服务
+GET {{baseUrl}}/
+Accept: application/json
+
+### 获取全部任务
+GET {{baseUrl}}/tasks
+Accept: application/json
+
+### 新增任务
+POST {{baseUrl}}/tasks
+Content-Type: application/json
+
+{
+  "title": "练习 FastAPI CRUD",
+  "priority": "high",
+  "deadline": "2026-10-12"
+}
+
+### 修改 1 号任务
+PUT {{baseUrl}}/tasks/1
+Content-Type: application/json
+
+{
+  "title": "完成 FastAPI 内存 CRUD",
+  "completed": true,
+  "priority": "medium"
+}
+
+### 删除 1 号任务
+DELETE {{baseUrl}}/tasks/1

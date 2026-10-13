@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel,ConfigDict, Field
 
 
 class TaskPriority(str, Enum):
@@ -31,7 +31,7 @@ class TaskUpdate(BaseModel):
 
 class TaskResponse(BaseModel):
     """接口返回给客户端的完整任务结构。"""
-
+    model_config = ConfigDict(from_attributes=True)
     id: int
     title: str
     completed: bool

@@ -164,3 +164,128 @@ DELETE 删除任务
   ↓
 GET 确认任务已经删除
 ```
+
+## 3. MySQL 与 SQLAlchemy
+
+第三阶段将 FastAPI 后端从 Python 内存列表改造为 MySQL 持久化存储，并使用 SQLAlchemy ORM 完成任务数据的增删改查。任务保存后不会因为 FastAPI 服务重启而丢失。
+
+### 技术与职责
+
+- MySQL：保存任务数据，提供 `task_manager` 数据库和 `tasks` 表。
+- SQLAlchemy：负责 Python 对象与 MySQL 表之间的映射，以及查询和事务操作。
+- PyMySQL：作为 SQLAlchemy 连接 MySQL 使用的数据库驱动。
+- python-dotenv：从 `.env` 读取本地数据库连接地址。
+- Pydantic：继续负责请求数据校验和响应数据序列化。
+
+### 后端目录更新
+
+```text
+backend/
+├─ sql/
+│  └─ init_database.sql  # 创建 task_manager 数据库
+├─ .env                  # 本地数据库连接信息，不提交到 Git
+├─ .env.example          # 数据库连接配置示例
+├─ database.py           # Engine、SessionLocal、Base 和 get_db
+├─ models.py             # SQLAlchemy Task 数据库模型
+├─ schemas.py            # Pydantic 请求与响应模型
+├─ seed.py               # 写入本地示例任务
+├─ main.py               # FastAPI 应用和数据库 CRUD 接口
+├─ test_main.http        # HTTP 接口测试
+└─ requirements.txt      # 后端直接依赖
+```
+
+### 数据库初始化
+
+`sql/init_database.sql` 负责创建数据库：
+
+```sql
+CREATE DATABASE IF NOT EXISTS task_manager
+CHARACTER SET utf8mb4
+COLLATE utf8mb4_unicode_ci;
+```
+
+`models.py` 中的 `Task` 类负责描述 `tasks` 表。FastAPI 启动时执行：
+
+```python
+Base.metadata.create_all(bind=engine)
+```
+
+SQLAlchemy 会检查表是否存在，并根据模型创建缺少的表。当前字段包括：
+
+| 字段 | 作用 |
+| --- | --- |
+| `id` | 自增主键 |
+| `title` | 任务标题 |
+| `completed` | 是否完成 |
+| `priority` | 高、中、低优先级 |
+| `deadline` | 截止日期 |
+| `created_at` | 创建时间 |
+
+### 数据库连接
+
+`.env.example` 提供连接格式：
+
+```dotenv
+DATABASE_URL=mysql+pymysql://username:password@127.0.0.1:3306/task_manager?charset=utf8mb4
+```
+
+实际账号和密码只保存在本地 `.env`。`database.py` 读取连接地址并创建：
+
+- `engine`：管理应用与 MySQL 的连接。
+- `SessionLocal`：为每次数据库操作创建会话。
+- `Base`：所有 SQLAlchemy 模型的基类。
+- `get_db()`：向接口提供 Session，并在请求结束后自动关闭。
+
+### 数据库 CRUD
+
+接口通过 `Depends(get_db)` 获取数据库 Session：
+
+| 操作 | SQLAlchemy 处理流程 |
+| --- | --- |
+| 查询 | `select(Task)` 查询任务并按 ID 排序 |
+| 创建 | `db.add()` 添加对象，`db.commit()` 提交，`db.refresh()` 读取生成字段 |
+| 更新 | `db.get()` 根据主键查询，`setattr()` 修改实际提交的字段，再提交事务 |
+| 删除 | `db.get()` 查询任务，`db.delete()` 标记删除，再提交事务 |
+
+更新接口使用：
+
+```python
+task_data.model_dump(exclude_unset=True, exclude_none=True)
+```
+
+这样只会更新客户端实际提交且不为 `null` 的字段。更新或删除不存在的任务时返回 `404 Not Found`。
+
+当前数据流为：
+
+```text
+HTTP 请求
+  → FastAPI 路由
+  → Pydantic 数据校验
+  → SQLAlchemy Session
+  → MySQL tasks 表
+  → Pydantic 响应模型
+```
+
+### 初始化示例数据
+
+确认已经创建 `task_manager` 数据库后，可以手动执行：
+
+```powershell
+cd D:\LTM\backend
+.\.venv\Scripts\Activate.ps1
+python seed.py
+```
+
+`seed.py` 会创建 4 条示例任务；如果数据库已有任务则跳过，避免重复插入。
+
+### 启动与验证
+
+使用明确的模块入口启动当前后端：
+
+```powershell
+cd D:\LTM\backend
+.\.venv\Scripts\Activate.ps1
+python -m uvicorn main:app --reload --port 8000
+```
+
+打开 Swagger：`http://127.0.0.1:8000/docs`，依次测试 `GET`、`POST`、`PUT` 和 `DELETE`。重启 FastAPI 后再次查询，如果任务仍然存在，就说明数据已经成功持久化到 MySQL。
